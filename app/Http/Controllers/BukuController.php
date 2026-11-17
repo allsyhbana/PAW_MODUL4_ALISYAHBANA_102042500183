@@ -4,8 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Buku;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\DB;
 
 class BukuController extends Controller
 {
@@ -65,7 +63,10 @@ class BukuController extends Controller
         $buku = $query->paginate(10)->withQueryString();
 
         // Ambil daftar unik penerbit untuk opsi dropdown filter
-        $listPenerbit = Buku::select('penerbit')->distinct()->orderBy('penerbit', 'asc')->pluck('penerbit');
+        $listPenerbit = Buku::select('penerbit')
+            ->distinct()
+            ->orderBy('penerbit', 'asc')
+            ->pluck('penerbit');
 
         return view('buku.index', compact('buku', 'listPenerbit'));
     }
@@ -89,7 +90,10 @@ class BukuController extends Controller
             'penerbit'     => 'required|string|max:100',
             'tahun_terbit' => 'required|integer',
             'stok'         => 'required|integer|min:0',
-            // TODO 4: Tambahkan validasi untuk berkas 'cover' (nullable|image|mimes:jpeg,png,jpg|max:2048)
+
+            // TODO 4: Validasi cover
+            'cover'        => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+
         ], [
             'judul.required'        => 'Judul buku wajib diisi.',
             'judul.max'             => 'Judul buku maksimal 100 karakter.',
@@ -107,8 +111,11 @@ class BukuController extends Controller
             'cover.max'             => 'Ukuran gambar maksimal 2 MB.',
         ]);
 
-        // TODO 4: Periksa jika ada berkas 'cover' yang diunggah ($request->hasFile('cover')),
-        // simpan berkas ke disk 'public' folder 'buku', dan masukkan path-nya ke $validated['cover']
+        // TODO 4: Simpan cover baru
+        if ($request->hasFile('cover')) {
+            $validated['cover'] = $request->file('cover')
+                ->store('buku', 'public');
+        }
 
         Buku::create($validated);
 
@@ -145,7 +152,10 @@ class BukuController extends Controller
             'penerbit'     => 'required|string|max:100',
             'tahun_terbit' => 'required|integer',
             'stok'         => 'required|integer|min:0',
-            // TODO 4: Tambahkan validasi untuk berkas 'cover' (nullable|image|mimes:jpeg,png,jpg|max:2048)
+
+            // TODO 4: Validasi cover
+            'cover'        => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+
         ], [
             'judul.required'        => 'Judul buku wajib diisi.',
             'judul.max'             => 'Judul buku maksimal 100 karakter.',
@@ -163,9 +173,18 @@ class BukuController extends Controller
             'cover.max'             => 'Ukuran gambar maksimal 2 MB.',
         ]);
 
-        // TODO 5: Periksa jika ada berkas 'cover' baru yang diunggah:
-        // 1. Hapus berkas cover fisik lama dari Storage::disk('public') jika ada
-        // 2. Simpan berkas cover baru ke folder 'buku' pada disk 'public' dan simpan ke $validated['cover']
+        // TODO 5: Mengganti cover lama dengan cover baru
+        if ($request->hasFile('cover')) {
+
+            // 1. Hapus cover lama jika tersedia
+            if ($buku->cover && Storage::disk('public')->exists($buku->cover)) {
+                Storage::disk('public')->delete($buku->cover);
+            }
+
+            // 2. Simpan cover baru
+            $validated['cover'] = $request->file('cover')
+                ->store('buku', 'public');
+        }
 
         $buku->update($validated);
 
@@ -179,13 +198,19 @@ class BukuController extends Controller
     public function destroy(Buku $buku)
     {
         // Cek jika buku sedang dipinjam
-        $adaPeminjamanAktif = $buku->peminjaman()->where('status', 'Dipinjam')->exists();
+        $adaPeminjamanAktif = $buku->peminjaman()
+            ->where('status', 'Dipinjam')
+            ->exists();
+
         if ($adaPeminjamanAktif) {
             return redirect()->route('buku.index')
                 ->with('error', 'Buku tidak dapat dihapus karena sedang dalam status dipinjam.');
         }
 
-        // TODO 6: Hapus berkas fisik 'cover' dari Storage::disk('public') sebelum record buku dihapus jika data cover ada
+        // TODO 6: Hapus cover dari storage sebelum menghapus data buku
+        if ($buku->cover && Storage::disk('public')->exists($buku->cover)) {
+            Storage::disk('public')->delete($buku->cover);
+        }
 
         $buku->delete();
 
